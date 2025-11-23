@@ -44,22 +44,26 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import (
 import torch.nn.functional as F
 
 
+vllm_import_error = None
 try:
     from vllm.model_executor.layers.fused_moe.fused_moe import fused_experts as fused_experts_vllm, fused_topk as fused_topk_vllm
     from vllm.model_executor.layers.layernorm import RMSNorm as VLLMRMSNorm
-except Exception:
+except ImportError as e:
     fused_experts_vllm = None
     fused_topk_vllm = None
+    vllm_import_error = e
 
+sglang_import_error = None
 try:
     from sglang.srt.layers.moe.fused_moe_triton.fused_moe import fused_moe as sglang_fused_moe
     # from sglang.srt.layers.layernorm import RMSNorm as SGLangRMSNorm # TODO: buggy atm
     from sglang.srt.layers.moe.topk import StandardTopKOutput
-except Exception:
+except ImportError as e:
     sglang_fused_moe = None
     StandardTopKOutput = None
+    sglang_import_error = e
 
-
+flashinfer_import_error = None
 try:
     import flashinfer.fused_moe as fused_moe
     ## TODO: below needs flashinfer>=0.4.0, but has some bug atm
@@ -68,10 +72,9 @@ try:
     #     """Wrapper around FlashInfer RMSNorm to match Qwen3MoeRMSNorm interface"""
     #     def forward(self, hidden_states):
     #         return flashinfer_rmsnorm(hidden_states, self.weight, self.variance_epsilon)
-            
-except Exception:
+except ImportError as e:
     fused_moe = None
-
+    flashinfer_import_error = e
 logger = logging.get_logger(__name__)
 
 
@@ -246,15 +249,6 @@ class RND1SparseMoeBlock(nn.Module):
         # Cached weight tensors for optimized backends
         self._w1 = None
         self._w2 = None
-        if self.backend == "sglang":
-            if sglang_fused_moe is None or StandardTopKOutput is None:
-                raise RuntimeError("sglang is not available, cannot use sglang backend")
-        elif self.backend == "flashinfer":
-            if fused_moe is None:
-                raise RuntimeError("flashinfer is not available, cannot use flashinfer backend")
-        elif self.backend == "vllm":
-            if fused_experts_vllm is None or fused_topk_vllm is None:
-                raise RuntimeError("vllm is not available, cannot use vllm backend")
 
     @torch.no_grad()
     def _initialize_weights(
@@ -434,6 +428,16 @@ class RND1PreTrainedModel(PreTrainedModel):
         **kwargs,
     ):
         """Load pretrained model with generation config."""
+
+        # Catch backend errors early
+        backend = getattr(config, "moe_backend", "hf")
+        if backend == "sglang" and sglang_import_error is not None:
+            raise RuntimeError(f"sglang is not available. Import error: {sglang_import_error}")
+        elif backend == "flashinfer" and flashinfer_import_error is not None:
+            raise RuntimeError(f"flashinfer is not available. Import error: {flashinfer_import_error}")
+        elif backend == "vllm" and vllm_import_error is not None:
+            raise RuntimeError(f"vllm is not available. Import error: {vllm_import_error}")
+
         _model = super().from_pretrained(
             pretrained_model_name_or_path,
             *model_args,
@@ -471,8 +475,6 @@ class RND1PreTrainedModel(PreTrainedModel):
 
         # If configured to use a fused backend, pack fused tensors once after load
         try:
-            cfg = getattr(_model, "config", None)
-            backend = getattr(cfg, "moe_backend", "hf") if cfg is not None else "hf"
             if backend in ("sglang", "vllm"):
                 # Walk decoder layers and initialize fused weights
                 model_core = getattr(_model, "model", _model)
