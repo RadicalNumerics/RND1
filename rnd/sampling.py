@@ -60,6 +60,7 @@ def diffusion_sample(
     bos_token_id: Optional[int] = None,
     device: Optional[Union[str, torch.device]] = None,
     visualizer: Optional[object] = None,
+    add_eos_at_end: bool = False,
 ) -> torch.LongTensor:
     """
     Perform masked diffusion sampling with entropy-based token selection.
@@ -83,6 +84,7 @@ def diffusion_sample(
         bos_token_id: Beginning of sequence token ID (default: None)
         device: Device for computation (None = infer from model)
         visualizer: Optional visualizer for live visualization
+        add_eos_at_end: Whether to force EOS token at the end of the sequence
 
     Returns:
         Generated token IDs as LongTensor
@@ -136,7 +138,7 @@ def diffusion_sample(
         pos = 0
         # if bos_token_id is not None:
         #     x[0, pos] = bos_token_id; pos += 1
-        if eos_token_id is not None:
+        if eos_token_id is not None and add_eos_at_end:
             x[0, -1] = eos_token_id
         if pre_len > 0:
             x[0, pos:pos+pre_len] = prefix_ids.flatten()[:pre_len]
@@ -155,7 +157,7 @@ def diffusion_sample(
         x = torch.full((1, seq_len), mask_token_id, dtype=torch.long, device=device)
         if bos_token_id is not None:
             x[0, 0] = bos_token_id
-        if eos_token_id is not None:
+        if eos_token_id is not None and add_eos_at_end:
             x[0, -1] = eos_token_id
         init_maskable = x.eq(mask_token_id)
 

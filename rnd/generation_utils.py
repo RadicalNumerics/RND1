@@ -124,7 +124,8 @@ class RND1GenerationMixin(HFGenerationMixin):
                 pad_token_id=pad_token_id,
                 bos_token_id=bos_token_id,
                 device=device,
-                visualizer=model_kwargs.get("visualizer", None),  # Optional visualizer from kwargs
+                visualizer=model_kwargs.get("visualizer", None),  # Optional visualizer from kwargs,
+                add_eos_at_end=getattr(gen_config, "add_eos_at_end", False),
             )
 
         if return_dict_in_generate or getattr(gen_config, "return_dict_in_generate", False):

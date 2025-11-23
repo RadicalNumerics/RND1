@@ -40,6 +40,7 @@ def demo_completion(
     seed: int = None,
     moe_backend: str = "hf",
     mode: str = "task",
+    add_eos_at_end: bool = False,
 ):
     """
     Demonstrate text completion using RND1.
@@ -60,6 +61,7 @@ def demo_completion(
         seed: Random seed for reproducibility
         moe_backend: MoE backend to use ('hf', 'vllm', 'sglang', 'flashinfer')
         mode: Generation mode ('task' for Q&A format, 'completion' for continuation)
+        add_eos_at_end: Whether to add EOS token at the end of the sequence
     """
     # if seed is not None:
     if seed is None:
@@ -160,6 +162,7 @@ def demo_completion(
             eos_token_id=tokenizer.eos_token_id if tokenizer.eos_token_id else 151645,
             pad_token_id=tokenizer.pad_token_id,
             bos_token_id=tokenizer.bos_token_id,
+            add_eos_at_end=add_eos_at_end,
         )
 
         with torch.no_grad():
@@ -183,8 +186,9 @@ def demo_completion(
             skip_special_tokens=True
         )
 
-        print("\nGenerated response:")
-        print(generation)
+        if not show_visualization: # by default the viz shows final response too
+            print("\nGenerated response:")
+            print(generation)
 
         print(f"\n(Generation completed in {num_steps} diffusion steps)")
 
@@ -301,6 +305,12 @@ def main():
         choices=["hf", "vllm", "sglang", "flashinfer"],
         help="MoE backend to use for sparse mixture of experts layers"
     )
+    add_eos_at_end_group = parser.add_argument_group('EOS Token')
+    add_eos_at_end_group.add_argument(
+        "--add_eos_at_end",
+        action="store_true",
+        help="Add End of Sequence (EOS) token at the end of the sequence. This can be useful to force the model to generate a complete sentence."
+    )
     
     args = parser.parse_args()
     
@@ -351,6 +361,7 @@ def main():
         seed=args.seed,
         moe_backend=args.moe_backend,
         mode=args.mode,
+        add_eos_at_end=args.add_eos_at_end,
     )
 
 
