@@ -18,6 +18,34 @@ flashinfer = [
 ]
 sglang = ["sglang[all]"]
 vllm = ["vllm"]
+linting = ["ruff>=0.13.2", "pre-commit>=4.0.0"]
 
 [tool.setuptools]
 packages = ["rnd"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+show-fixes = false
+extend-exclude = ["*.ipynb"]
+
+[tool.ruff.lint]
+select = ["F", "E", "W", "I001", "UP"]
+task-tags = ["TODO", "FIXME"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["E402", "F401"]
+
+[tool.ruff.lint.isort]
+known-first-party = []
+known-third-party = []
+section-order = [
+    "future",
+    "standard-library",
+    "third-party",
+    "first-party",
+    "local-folder",
+]
+combine-as-imports = true
+split-on-trailing-comma = false
+lines-between-types = 1
