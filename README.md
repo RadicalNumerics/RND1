@@ -63,11 +63,12 @@ python demo_rnd_generation.py --top_k 50 --temperature 0.7 --prompt "Explain how
   - `completion`: For text continuation (no prefix added)
 - `--max_new_tokens`: Number of new tokens to generate (default: 256)
 - `--num_steps`: Diffusion denoising steps (default: 256)
-- `--temperature`: Sampling temperature, 0.0 for greedy (default: 0.0)
+- `--temperature`: Sampling temperature, 0.0 for greedy (default: 0.01)
 - `--top_k`: Top-k filtering - keeps only k most likely tokens (works with greedy and sampling)
 - `--top_p`: Nucleus filtering - keeps tokens with cumulative probability ≤ p (works with greedy and sampling)
 - `--moe_backend`: Choose backend: hf, vllm, sglang, flashinfer (default: hf)
 - `--no_viz`: Disable visualization
+- `--add_eos_at_end`: Add End of Sequence (EOS) token at the end of the sequence; useful to force the model to come to a coherent end (default: False)
 
 ## Python API
 
