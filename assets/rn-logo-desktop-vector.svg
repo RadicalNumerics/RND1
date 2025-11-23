@@ -8,9 +8,9 @@
       @media (prefers-color-scheme: dark) {
         :root { --main-color: #ffffff; }
       }
-      
-      .letter { 
-        fill: var(--main-color); 
+
+      .letter {
+        fill: var(--main-color);
       }
 
       .square {

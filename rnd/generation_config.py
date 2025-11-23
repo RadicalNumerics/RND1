@@ -10,7 +10,6 @@ This module defines the generation configuration for RND1 models,
 controlling the diffusion-based generation process.
 """
 
-from typing import Optional
 from transformers.generation.configuration_utils import GenerationConfig
 
 
@@ -38,8 +37,8 @@ class RND1GenerationConfig(GenerationConfig):
         num_diffusion_steps: int = 256,
         mask_token_id: int = 151669,
         temperature: float = 0.1,
-        top_k: Optional[int] = None,
-        top_p: Optional[float] = None,
+        top_k: int | None = None,
+        top_p: float | None = None,
         greedy: bool = False,
         bos_token_id: int = None,
         eos_token_id: int = None,
@@ -49,7 +48,7 @@ class RND1GenerationConfig(GenerationConfig):
     ):
         # Force no caching for RND generation
         # kwargs['use_cache'] = False
-        kwargs.pop('use_cache', None)
+        kwargs.pop("use_cache", None)
         super().__init__(
             max_length=max_length,
             bos_token_id=bos_token_id,

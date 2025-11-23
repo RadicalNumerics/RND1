@@ -7,7 +7,7 @@ RND1: Scaling Diffusion Language Models
 ![???](https://github.com/user-attachments/assets/c2c54f94-a7f5-4b76-987d-f15de4efaef6)
 
 
-This repository contains an inference harness for Radical Numerics Diffusion 1 (RND1), an experimental diffusion language model. RND1-Base-0910 is a 30B‑parameter sparse Mixture‑of‑Experts model with 3B active parameters per token, converted from an autoregressive base (Qwen3-30B-A3B) via continual pretraining on 500B tokens. 
+This repository contains an inference harness for Radical Numerics Diffusion 1 (RND1), an experimental diffusion language model. RND1-Base-0910 is a 30B‑parameter sparse Mixture‑of‑Experts model with 3B active parameters per token, converted from an autoregressive base (Qwen3-30B-A3B) via continual pretraining on 500B tokens.
 
 We release RND1 models to catalyze further research on inference and post-training of DLMs.
 
@@ -17,7 +17,7 @@ For more details, see:
 
 **Report:** https://www.radicalnumerics.ai/assets/rnd1_report.pdf
 
-**🤗:** https://huggingface.co/radicalnumerics/RND1-Base-0910 
+**🤗:** https://huggingface.co/radicalnumerics/RND1-Base-0910
 
 **Models:**
  * **RND1-Base-0910**: first base model in the RND1 family. It has not been post-trained for specific usage.

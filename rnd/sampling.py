@@ -13,7 +13,6 @@ with optional prefix/suffix constraints and infilling.
 
 import torch
 import torch.nn as nn
-from typing import Optional, Union
 
 
 def apply_top_k_filtering(logits: torch.Tensor, k: int) -> torch.Tensor:
@@ -21,7 +20,7 @@ def apply_top_k_filtering(logits: torch.Tensor, k: int) -> torch.Tensor:
     Apply top-k filtering to logits: with non-top-k values set to -inf
     """
     top_k_values, top_k_indices = torch.topk(logits, min(k, logits.size(-1)), dim=-1)
-    filtered_logits = torch.full_like(logits, float('-inf'))
+    filtered_logits = torch.full_like(logits, float("-inf"))
     filtered_logits.scatter_(-1, top_k_indices, top_k_values)
     return filtered_logits
 
@@ -39,7 +38,7 @@ def apply_top_p_filtering(logits: torch.Tensor, p: float) -> torch.Tensor:
     sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
 
     indices_to_remove = sorted_indices_to_remove.scatter(-1, sorted_indices, sorted_indices_to_remove)
-    return logits.masked_fill(indices_to_remove, float('-inf'))
+    return logits.masked_fill(indices_to_remove, float("-inf"))
 
 
 @torch.no_grad()
@@ -47,19 +46,19 @@ def diffusion_sample(
     model: nn.Module,
     seq_len: int = 256,
     num_steps: int = 256,
-    top_k: Optional[int] = None,
-    top_p: Optional[float] = None,
+    top_k: int | None = None,
+    top_p: float | None = None,
     temperature: float = 1.0,
     greedy: bool = True,
     mask_token_id: int = 151669,
-    prefix_ids: Optional[torch.LongTensor] = None,
-    suffix_ids: Optional[torch.LongTensor] = None,
-    infill_length: Optional[int] = None,
+    prefix_ids: torch.LongTensor | None = None,
+    suffix_ids: torch.LongTensor | None = None,
+    infill_length: int | None = None,
     eos_token_id: int = 151645,
-    pad_token_id: Optional[int] = None,
-    bos_token_id: Optional[int] = None,
-    device: Optional[Union[str, torch.device]] = None,
-    visualizer: Optional[object] = None,
+    pad_token_id: int | None = None,
+    bos_token_id: int | None = None,
+    device: str | torch.device | None = None,
+    visualizer: object | None = None,
     add_eos_at_end: bool = False,
 ) -> torch.LongTensor:
     """
@@ -105,18 +104,26 @@ def diffusion_sample(
     # - The remaining (seq_len - pre_len) positions are filled with mask tokens to be generated
     if prefix_ids is not None or suffix_ids is not None:
         if prefix_ids is not None:
-            prefix_ids = prefix_ids.to(device) if isinstance(prefix_ids, torch.Tensor) else torch.tensor(prefix_ids, device=device)
+            prefix_ids = (
+                prefix_ids.to(device)
+                if isinstance(prefix_ids, torch.Tensor)
+                else torch.tensor(prefix_ids, device=device)
+            )
             pre_len = prefix_ids.shape[-1] if prefix_ids.dim() > 0 else 0
         else:
             pre_len = 0
 
         if suffix_ids is not None:
-            suffix_ids = suffix_ids.to(device) if isinstance(suffix_ids, torch.Tensor) else torch.tensor(suffix_ids, device=device)
+            suffix_ids = (
+                suffix_ids.to(device)
+                if isinstance(suffix_ids, torch.Tensor)
+                else torch.tensor(suffix_ids, device=device)
+            )
             suf_len = suffix_ids.shape[-1] if suffix_ids.dim() > 0 else 0
         else:
             suf_len = 0
 
-        reserved = (1 if eos_token_id is not None else 0)
+        reserved = 1 if eos_token_id is not None else 0
         used = pre_len + suf_len + reserved
 
         if used > seq_len:
@@ -141,14 +148,14 @@ def diffusion_sample(
         if eos_token_id is not None and add_eos_at_end:
             x[0, -1] = eos_token_id
         if pre_len > 0:
-            x[0, pos:pos+pre_len] = prefix_ids.flatten()[:pre_len]
+            x[0, pos : pos + pre_len] = prefix_ids.flatten()[:pre_len]
             pos += pre_len
         fill_start, fill_end = pos, pos + infill_length
         x[0, fill_start:fill_end] = mask_token_id
         # print(fill_start, fill_end, seq_len, used, x[0, -1])
         pos = fill_end
         if suf_len > 0:
-            x[0, pos:pos+suf_len] = suffix_ids.flatten()[:suf_len]
+            x[0, pos : pos + suf_len] = suffix_ids.flatten()[:suf_len]
             pos += suf_len
 
         init_maskable = torch.zeros_like(x, dtype=torch.bool)

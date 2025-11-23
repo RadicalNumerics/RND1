@@ -12,16 +12,17 @@ formatting when available.
 """
 
 import torch
-from typing import Optional
+
 from tqdm import tqdm
 
 try:
     from rich.console import Console
-    from rich.live import Live
-    from rich.text import Text
-    from rich.panel import Panel
-    from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn, MofNCompleteColumn
     from rich.layout import Layout
+    from rich.live import Live
+    from rich.panel import Panel
+    from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeRemainingColumn
+    from rich.text import Text
+
     RICH_AVAILABLE = True
 except ImportError:
     RICH_AVAILABLE = False
@@ -83,9 +84,7 @@ class TerminalVisualizer:
 
         self.layout = Layout()
         self.layout.split_column(
-            Layout(name="header", size=3),
-            Layout(name="text", ratio=1),
-            Layout(name="progress", size=3)
+            Layout(name="header", size=3), Layout(name="text", ratio=1), Layout(name="progress", size=3)
         )
 
         self.progress = Progress(
@@ -96,18 +95,20 @@ class TerminalVisualizer:
             TextColumn("[cyan]Masks: {task.fields[masks]}"),
             TimeRemainingColumn(),
         )
-        self.progress_task = self.progress.add_task(
-            "Generating",
-            total=total_steps,
-            masks=mask_positions.sum().item()
-        )
+        self.progress_task = self.progress.add_task("Generating", total=total_steps, masks=mask_positions.sum().item())
 
         self.live = Live(self.layout, console=self.console, refresh_per_second=4)
         self.live.start()
         self._update_display()
 
-    def update_step(self, tokens: torch.LongTensor, maskable: Optional[torch.BoolTensor], step: int,
-                    entropy: Optional[torch.FloatTensor] = None, confidence: Optional[torch.FloatTensor] = None):
+    def update_step(
+        self,
+        tokens: torch.LongTensor,
+        maskable: torch.BoolTensor | None,
+        step: int,
+        entropy: torch.FloatTensor | None = None,
+        confidence: torch.FloatTensor | None = None,
+    ):
         """
         Update visualization for current step.
 
@@ -122,7 +123,7 @@ class TerminalVisualizer:
             if self.pbar:
                 self.pbar.update(1)
                 masks = maskable.sum().item() if maskable is not None else 0
-                self.pbar.set_postfix({'masks': masks})
+                self.pbar.set_postfix({"masks": masks})
             return
 
         self.current_tokens = tokens.clone()
@@ -130,11 +131,7 @@ class TerminalVisualizer:
         self.current_step = step
 
         masks_remaining = maskable.sum().item() if maskable is not None else 0
-        self.progress.update(
-            self.progress_task,
-            advance=1,
-            masks=masks_remaining
-        )
+        self.progress.update(self.progress_task, advance=1, masks=masks_remaining)
 
         self._update_display()
 
@@ -152,7 +149,7 @@ class TerminalVisualizer:
                 text_display,
                 title="[bold]Generated Text",
                 subtitle=f"[dim]Step {self.current_step}/{self.total_steps}[/dim]",
-                border_style="cyan"
+                border_style="cyan",
             )
         )
 
@@ -171,12 +168,18 @@ class TerminalVisualizer:
             return text
 
         token_ids = self.current_tokens[0] if self.current_tokens.dim() > 1 else self.current_tokens
-        mask_flags = self.mask_positions[0] if self.mask_positions is not None and self.mask_positions.dim() > 1 else self.mask_positions
+        mask_flags = (
+            self.mask_positions[0]
+            if self.mask_positions is not None and self.mask_positions.dim() > 1
+            else self.mask_positions
+        )
 
         for i, token_id in enumerate(token_ids):
             if mask_flags is not None and i < len(mask_flags) and mask_flags[i]:
                 # Alternate colors for visual effect
-                text.append("[MASK]", style="bold red on yellow" if self.current_step % 2 == 0 else "bold yellow on red")
+                text.append(
+                    "[MASK]", style="bold red on yellow" if self.current_step % 2 == 0 else "bold yellow on red"
+                )
             else:
                 try:
                     token_str = self.tokenizer.decode([token_id.item()], skip_special_tokens=False)
@@ -184,7 +187,7 @@ class TerminalVisualizer:
                     if token_str not in ["<|endoftext|>", "<|im_start|>", "<|im_end|>", "<s>", "</s>"]:
                         # Color based on position
                         text.append(token_str, style="green" if i < len(token_ids) // 2 else "cyan")
-                except:
+                except Exception:
                     continue
 
         return text
@@ -208,13 +211,10 @@ class TerminalVisualizer:
                     token_ids = self.current_tokens[0] if self.current_tokens.dim() > 1 else self.current_tokens
                     final_text = self.tokenizer.decode(token_ids, skip_special_tokens=True)
 
-                    self.console.print(Panel(
-                        final_text,
-                        title="[bold]Final Generated Text",
-                        border_style="green",
-                        padding=(1, 2)
-                    ))
-                except:
+                    self.console.print(
+                        Panel(final_text, title="[bold]Final Generated Text", border_style="green", padding=(1, 2))
+                    )
+                except Exception:
                     pass
 
 
@@ -243,7 +243,7 @@ class SimpleProgressBar:
             masks_remaining: Number of masks still remaining
         """
         self.pbar.update(1)
-        self.pbar.set_postfix({'masks': masks_remaining})
+        self.pbar.set_postfix({"masks": masks_remaining})
 
     def close(self):
         """Close the progress bar."""

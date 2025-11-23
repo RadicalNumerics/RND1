@@ -17,36 +17,33 @@ https://github.com/huggingface/transformers/blob/v4.57.0/src/transformers/models
 from __future__ import annotations
 
 import os
-from typing import Optional, Tuple, List, Union
 
 import torch
-from torch import nn
+import torch.nn.functional as F
 
-from transformers.utils import logging
+from torch import nn
 from transformers.cache_utils import Cache
-from transformers.modeling_outputs import (
-    MoeModelOutputWithPast,
-    MaskedLMOutput,
-)
-from transformers.modeling_utils import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
 from transformers.generation import GenerationConfig
+from transformers.modeling_outputs import MaskedLMOutput, MoeModelOutputWithPast
+from transformers.modeling_utils import PreTrainedModel
+from transformers.models.qwen3_moe.modeling_qwen3_moe import (
+    Qwen3MoeMLP,
+    Qwen3MoeRMSNorm,
+    Qwen3MoeRotaryEmbedding,
+    apply_rotary_pos_emb,
+)
+from transformers.utils import logging
 
 from .configuration_rnd import RND1Config
 from .generation_utils import RND1GenerationMixin
 
-from transformers.models.qwen3_moe.modeling_qwen3_moe import (
-    Qwen3MoeRMSNorm,
-    Qwen3MoeRotaryEmbedding,
-    Qwen3MoeMLP,
-    apply_rotary_pos_emb
-)
-import torch.nn.functional as F
-
-
 vllm_import_error = None
 try:
-    from vllm.model_executor.layers.fused_moe.fused_moe import fused_experts as fused_experts_vllm, fused_topk as fused_topk_vllm
+    from vllm.model_executor.layers.fused_moe.fused_moe import (
+        fused_experts as fused_experts_vllm,
+        fused_topk as fused_topk_vllm,
+    )
     from vllm.model_executor.layers.layernorm import RMSNorm as VLLMRMSNorm
 except ImportError as e:
     fused_experts_vllm = None
@@ -56,6 +53,7 @@ except ImportError as e:
 sglang_import_error = None
 try:
     from sglang.srt.layers.moe.fused_moe_triton.fused_moe import fused_moe as sglang_fused_moe
+
     # from sglang.srt.layers.layernorm import RMSNorm as SGLangRMSNorm # TODO: buggy atm
     from sglang.srt.layers.moe.topk import StandardTopKOutput
 except ImportError as e:
@@ -83,9 +81,7 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     batch, num_key_value_heads, slen, head_dim = hidden_states.shape
     if n_rep == 1:
         return hidden_states
-    hidden_states = hidden_states[:, :, None, :, :].expand(
-        batch, num_key_value_heads, n_rep, slen, head_dim
-    )
+    hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
 
@@ -102,13 +98,17 @@ class RND1Attention(nn.Module):
         self.num_key_value_heads = config.num_key_value_heads
         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
 
-        self.scaling = self.head_dim ** -0.5
+        self.scaling = self.head_dim**-0.5
         self.attention_dropout = config.attention_dropout
         self.is_causal = False
 
         self.q_proj = nn.Linear(config.hidden_size, self.num_heads * self.head_dim, bias=config.attention_bias)
-        self.k_proj = nn.Linear(config.hidden_size, self.num_key_value_heads * self.head_dim, bias=config.attention_bias)
-        self.v_proj = nn.Linear(config.hidden_size, self.num_key_value_heads * self.head_dim, bias=config.attention_bias)
+        self.k_proj = nn.Linear(
+            config.hidden_size, self.num_key_value_heads * self.head_dim, bias=config.attention_bias
+        )
+        self.v_proj = nn.Linear(
+            config.hidden_size, self.num_key_value_heads * self.head_dim, bias=config.attention_bias
+        )
         self.o_proj = nn.Linear(self.num_heads * self.head_dim, config.hidden_size, bias=config.attention_bias)
 
         if config.moe_backend == "vllm":
@@ -125,20 +125,19 @@ class RND1Attention(nn.Module):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[Union[Cache, Tuple[torch.Tensor, torch.Tensor]]] = None,
-        cache_position: Optional[torch.LongTensor] = None,
-        position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
-        dual_cache: Optional[bool] = False,
-        replace_position: Optional[torch.Tensor] = None,
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        past_key_values: Cache | tuple[torch.Tensor, torch.Tensor] | None = None,
+        cache_position: torch.LongTensor | None = None,
+        position_embeddings: tuple[torch.Tensor, torch.Tensor] | None = None,
+        dual_cache: bool | None = False,
+        replace_position: torch.Tensor | None = None,
         **kwargs,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Union[Cache, Tuple[torch.Tensor, torch.Tensor]]]]:
-
+    ) -> tuple[torch.Tensor, torch.Tensor | None, Cache | tuple[torch.Tensor, torch.Tensor] | None]:
         bsz, q_len, _ = hidden_states.size()
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.head_dim)
-        
+
         query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
         key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
         value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
@@ -149,16 +148,18 @@ class RND1Attention(nn.Module):
         key_states = repeat_kv(key_states, self.num_key_value_groups)
         value_states = repeat_kv(value_states, self.num_key_value_groups)
 
-        use_sdpa = (getattr(self.config, "_attn_implementation", "eager") == "sdpa")
+        use_sdpa = getattr(self.config, "_attn_implementation", "eager") == "sdpa"
 
         if use_sdpa:
             if attention_mask is not None and isinstance(attention_mask, torch.Tensor):
                 if attention_mask.dtype not in [torch.bool, torch.float32, torch.float16, torch.bfloat16]:
                     attention_mask = attention_mask.to(dtype=query_states.dtype)
-            
+
             assert not self.is_causal, f"Attention layer {self.layer_idx} is causal"
             attn_out = torch.nn.functional.scaled_dot_product_attention(
-                query_states, key_states, value_states,
+                query_states,
+                key_states,
+                value_states,
                 attn_mask=attention_mask if isinstance(attention_mask, torch.Tensor) else None,
                 dropout_p=self.attention_dropout if self.training else 0.0,
                 is_causal=self.is_causal,
@@ -200,12 +201,12 @@ class RND1DecoderLayer(nn.Module):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
-        replace_position: Optional[torch.Tensor] = None,
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        position_embeddings: tuple[torch.Tensor, torch.Tensor] | None = None,
+        replace_position: torch.Tensor | None = None,
         **kwargs,
-    ) -> Tuple[torch.FloatTensor, Optional[torch.Tensor]]:
+    ) -> tuple[torch.FloatTensor, torch.Tensor | None]:
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
 
@@ -255,12 +256,12 @@ class RND1SparseMoeBlock(nn.Module):
         self,
         free_experts: bool = True,
         mode: str = "vllm",
-        ) -> None:
+    ) -> None:
         logger.info(f"Initializing weights for {mode} backend")
         # Stack directly on device where weights already reside (loaded by HF)
-        gate_list: List[torch.Tensor] = []
-        up_list: List[torch.Tensor] = []
-        down_list: List[torch.Tensor] = []
+        gate_list: list[torch.Tensor] = []
+        up_list: list[torch.Tensor] = []
+        down_list: list[torch.Tensor] = []
 
         # Collect weight references without any device moves
         for expert in self.experts:
@@ -273,22 +274,20 @@ class RND1SparseMoeBlock(nn.Module):
         down_w_stacked = torch.stack(down_list, dim=0).contiguous()
 
         if mode == "flashinfer":
-            w1 = torch.cat([up_w_stacked, gate_w_stacked], dim=1) # FlashInfer expects [up; gate] ordering
+            w1 = torch.cat([up_w_stacked, gate_w_stacked], dim=1)  # FlashInfer expects [up; gate] ordering
         else:
             w1 = torch.cat([gate_w_stacked, up_w_stacked], dim=1)
         w2 = down_w_stacked
         self._w1 = w1
         self._w2 = w2
 
-
         if free_experts:
             # Free per-expert modules to reclaim memory
             logger.info(f"Freeing experts for {mode} backend")
             del self.experts
             self.experts = None
-        
-            
-    def forward(self, hidden_states: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+
+    def forward(self, hidden_states: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Forward pass with expert routing and computation."""
         batch_size, sequence_length, hidden_dim = hidden_states.shape
         x = hidden_states.view(-1, hidden_dim)
@@ -296,7 +295,7 @@ class RND1SparseMoeBlock(nn.Module):
         # Expert routing
         router_logits = self.gate(x)
         routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
-        
+
         if self.backend == "vllm":
             routing_weights, selected_experts, _ = fused_topk_vllm(
                 hidden_states=x,
@@ -308,7 +307,6 @@ class RND1SparseMoeBlock(nn.Module):
             routing_weights, selected_experts = torch.topk(routing_weights, self.top_k, dim=-1)
             if self.norm_topk_prob:
                 routing_weights = routing_weights / routing_weights.sum(dim=-1, keepdim=True)
-
 
         if self.backend == "hf":
             final_hidden_states = torch.zeros(
@@ -388,6 +386,7 @@ class RND1SparseMoeBlock(nn.Module):
 
 class RND1PreTrainedModel(PreTrainedModel):
     """Base class for RND1 models with weight initialization and loading support."""
+
     config_class = RND1Config
     base_model_prefix = "model"
     supports_gradient_checkpointing = True
@@ -414,16 +413,16 @@ class RND1PreTrainedModel(PreTrainedModel):
     @classmethod
     def from_pretrained(
         cls,
-        pretrained_model_name_or_path: Optional[Union[str, os.PathLike]],
+        pretrained_model_name_or_path: str | os.PathLike | None,
         *model_args,
-        config: Optional[Union[PretrainedConfig, str, os.PathLike]] = None,
-        cache_dir: Optional[Union[str, os.PathLike]] = None,
+        config: PretrainedConfig | str | os.PathLike | None = None,
+        cache_dir: str | os.PathLike | None = None,
         ignore_mismatched_sizes: bool = False,
         force_download: bool = False,
         local_files_only: bool = False,
-        token: Optional[Union[str, bool]] = None,
+        token: str | bool | None = None,
         revision: str = "main",
-        use_safetensors: Optional[bool] = None,
+        use_safetensors: bool | None = None,
         weights_only: bool = True,
         **kwargs,
     ):
@@ -452,13 +451,13 @@ class RND1PreTrainedModel(PreTrainedModel):
             weights_only=weights_only,
             **kwargs,
         )
-        
+
         resume_download = kwargs.get("resume_download", None)
         proxies = kwargs.get("proxies", None)
         subfolder = kwargs.get("subfolder", "")
         from_auto_class = kwargs.get("_from_auto", False)
         from_pipeline = kwargs.get("_from_pipeline", None)
-        
+
         _model.generation_config = GenerationConfig.from_pretrained(
             pretrained_model_name_or_path,
             cache_dir=cache_dir,
@@ -509,18 +508,17 @@ class RND1Model(RND1PreTrainedModel):
         else:
             RMSNormClass = Qwen3MoeRMSNorm
         self.norm = RMSNormClass(config.hidden_size, eps=config.rms_norm_eps)
-        
+
         self.rotary_emb = Qwen3MoeRotaryEmbedding(config=config)
 
         self.post_init()
 
-
     def forward(
         self,
-        input_ids: Optional[torch.LongTensor] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
+        input_ids: torch.LongTensor | None = None,
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        inputs_embeds: torch.FloatTensor | None = None,
         **kwargs,
     ) -> MoeModelOutputWithPast:
         """Forward pass through the RND1 model."""
@@ -586,11 +584,11 @@ class RND1LM(RND1PreTrainedModel, RND1GenerationMixin):
 
     def forward(
         self,
-        input_ids: Optional[torch.LongTensor] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        labels: Optional[torch.LongTensor] = None,
+        input_ids: torch.LongTensor | None = None,
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        inputs_embeds: torch.FloatTensor | None = None,
+        labels: torch.LongTensor | None = None,
         **kwargs,
     ) -> MaskedLMOutput:
         """Forward pass with optional loss computation."""

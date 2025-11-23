@@ -10,8 +10,10 @@ This module provides generation utilities and mixins for RND1 models,
 including the main GenerationMixin class that integrates with HuggingFace.
 """
 
+from typing import Any
+
 import torch
-from typing import Optional, Union, Dict, Any
+
 from transformers import GenerationMixin as HFGenerationMixin
 from transformers.generation import GenerationConfig
 
@@ -29,15 +31,15 @@ class RND1GenerationMixin(HFGenerationMixin):
 
     def generate(
         self,
-        inputs: Optional[torch.LongTensor] = None,
-        generation_config: Optional[GenerationConfig] = None,
+        inputs: torch.LongTensor | None = None,
+        generation_config: GenerationConfig | None = None,
         # RND1-specific parameters
-        prefix_ids: Optional[torch.LongTensor] = None,
-        suffix_ids: Optional[torch.LongTensor] = None,
-        infill_length: Optional[int] = None,
-        return_dict_in_generate: Optional[bool] = None,
+        prefix_ids: torch.LongTensor | None = None,
+        suffix_ids: torch.LongTensor | None = None,
+        infill_length: int | None = None,
+        return_dict_in_generate: bool | None = None,
         **kwargs,  # Accept all kwargs to be compatible with pipelines
-    ) -> Union[torch.LongTensor, Dict[str, Any]]:
+    ) -> torch.LongTensor | dict[str, Any]:
         """
         Generate text using RND1's diffusion-based sampling.
 
@@ -96,16 +98,17 @@ class RND1GenerationMixin(HFGenerationMixin):
             else:
                 seq_len = gen_config.max_length or self.config.max_position_embeddings
 
-        num_diffusion_steps = getattr(gen_config, "num_diffusion_steps",
-                                     getattr(self.config, "num_diffusion_steps", 256))
+        num_diffusion_steps = getattr(
+            gen_config, "num_diffusion_steps", getattr(self.config, "num_diffusion_steps", 256)
+        )
 
         temperature = float(getattr(gen_config, "temperature", 1.0))
         top_k = getattr(gen_config, "top_k", None)
         top_p = getattr(gen_config, "top_p", None)
 
-        greedy = getattr(gen_config, "greedy",
-                        not bool(gen_config.do_sample) if hasattr(gen_config, "do_sample") else True)
-
+        greedy = getattr(
+            gen_config, "greedy", not bool(gen_config.do_sample) if hasattr(gen_config, "do_sample") else True
+        )
 
         with torch.inference_mode():
             sequences = diffusion_sample(
@@ -130,6 +133,7 @@ class RND1GenerationMixin(HFGenerationMixin):
 
         if return_dict_in_generate or getattr(gen_config, "return_dict_in_generate", False):
             from transformers.generation.utils import GenerateDecoderOnlyOutput
+
             return GenerateDecoderOnlyOutput(sequences=sequences)
 
         return sequences
@@ -137,10 +141,10 @@ class RND1GenerationMixin(HFGenerationMixin):
     def generate_with_visualization(
         self,
         tokenizer,
-        inputs: Optional[torch.LongTensor] = None,
-        generation_config: Optional[GenerationConfig] = None,
-        suffix_ids: Optional[torch.LongTensor] = None,
-        infill_length: Optional[int] = None,
+        inputs: torch.LongTensor | None = None,
+        generation_config: GenerationConfig | None = None,
+        suffix_ids: torch.LongTensor | None = None,
+        infill_length: int | None = None,
         **kwargs,
     ) -> torch.LongTensor:
         """
@@ -161,6 +165,7 @@ class RND1GenerationMixin(HFGenerationMixin):
             Generated token IDs as LongTensor
         """
         from .terminal_visualizer import TerminalVisualizer
+
         visualizer = TerminalVisualizer(tokenizer, show_visualization=True)
 
         return self.generate(
@@ -177,7 +182,7 @@ class RND1GenerationMixin(HFGenerationMixin):
         self,
         input_ids: torch.LongTensor,
         **kwargs,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Prepare inputs for generation (required by HuggingFace).
 
