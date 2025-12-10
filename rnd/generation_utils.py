@@ -105,6 +105,7 @@ class RND1GenerationMixin(HFGenerationMixin):
         temperature = float(getattr(gen_config, "temperature", 1.0))
         top_k = getattr(gen_config, "top_k", None)
         top_p = getattr(gen_config, "top_p", None)
+        eb_gamma = getattr(gen_config, "eb_gamma", None)
 
         greedy = getattr(
             gen_config, "greedy", not bool(gen_config.do_sample) if hasattr(gen_config, "do_sample") else True
@@ -129,6 +130,7 @@ class RND1GenerationMixin(HFGenerationMixin):
                 device=device,
                 visualizer=model_kwargs.get("visualizer", None),  # Optional visualizer from kwargs,
                 add_eos_at_end=getattr(gen_config, "add_eos_at_end", False),
+                eb_gamma=eb_gamma,
             )
 
         if return_dict_in_generate or getattr(gen_config, "return_dict_in_generate", False):

@@ -42,6 +42,7 @@ def demo_completion(
     moe_backend: str = "hf",
     mode: str = "task",
     add_eos_at_end: bool = False,
+    eb_gamma: float = None,
 ):
     """
     Demonstrate text completion using RND1.
@@ -171,6 +172,7 @@ def demo_completion(
             pad_token_id=tokenizer.pad_token_id,
             bos_token_id=tokenizer.bos_token_id,
             add_eos_at_end=add_eos_at_end,
+            eb_gamma=eb_gamma,
         )
 
         with torch.no_grad():
@@ -241,6 +243,14 @@ def main():
         default=None,
         help="Top-p (nucleus) filtering: keep tokens with cumulative probability <= p",
     )
+    sampling_group.add_argument(
+        "--eb_gamma",
+        type=float,
+        default=None,
+        help="EB-Sampler gamma parameter for entropy-based position selection. "
+             "If set, enables EB-Sampler instead of default entropy-based selection. "
+             "Lower values select fewer positions per step."
+    )
 
     # Visualization
     viz_group = parser.add_argument_group("Visualization")
@@ -298,6 +308,8 @@ def main():
         print(f"  Top-k: {args.top_k}")
     if args.top_p:
         print(f"  Top-p: {args.top_p}")
+    if args.eb_gamma:
+        print(f"  EB-Sampler gamma: {args.eb_gamma}")
     print(f"  MoE Backend: {args.moe_backend}")
     print(f"  Visualization: {'Enabled' if not args.no_viz else 'Disabled'}")
     print("=" * 60 + "\n")
@@ -319,6 +331,7 @@ def main():
         moe_backend=args.moe_backend,
         mode=args.mode,
         add_eos_at_end=args.add_eos_at_end,
+        eb_gamma=args.eb_gamma,
     )
 
 
