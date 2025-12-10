@@ -60,6 +60,7 @@ def diffusion_sample(
     device: str | torch.device | None = None,
     visualizer: object | None = None,
     add_eos_at_end: bool = False,
+    eb_gamma: float | None = None,
 ) -> torch.LongTensor:
     """
     Perform masked diffusion sampling with entropy-based token selection.
@@ -232,24 +233,53 @@ def diffusion_sample(
     finf = torch.finfo(conf_i.dtype)
 
     for step in range(num_steps - 1, 0, -1):
-        rate = step / num_steps
-        cutoff_len = (total_masked * rate).long().clamp(min=0)
+        if eb_gamma is not None:
+            # Error proxy: lower = better (unmask earlier - importance sampling)
+            err = -conf_i.clone()
+            err = err.masked_fill(~maskable, finf.max)
 
-        # Choose HIGH-entropy tokens to keep masked
-        sel_scores = ent_i.masked_fill(~maskable, -finf.max)
-        B, L = sel_scores.shape
-        k_max = cutoff_len.max().item()
-        if k_max > 0:
-            sss, idx = torch.topk(sel_scores, k_max, dim=-1, largest=True)
-            keep_mask = torch.zeros_like(sel_scores, dtype=torch.bool)
+            sorted_err, idx = torch.sort(err, dim=-1)
+            entropy_sorted = torch.gather(ent_i, 1, idx)
+
+            # EB criterion: acc_entropy - cummax_entropy <= gamma
+            acc_entropy = torch.cumsum(entropy_sorted, dim=-1)
+            cummax_entropy, _ = torch.cummax(entropy_sorted, dim=-1)
+            valid = (acc_entropy - cummax_entropy) <= eb_gamma
+
+            to_unmask = torch.zeros_like(maskable)
+            B, L = maskable.shape
             for b in range(B):
-                k_b = int(cutoff_len[b].item())
-                if k_b > 0:
-                    keep_mask[b, idx[b, :k_b]] = True
-        else:
-            keep_mask = torch.zeros_like(sel_scores, dtype=torch.bool)
+                maskable_idx = idx[b]
+                valid_b = valid[b]
 
-        to_unmask = maskable & ~keep_mask
+                # how many satisfy the bound
+                k_b = int(valid_b.sum().item())
+
+                if k_b > 0:
+                    chosen = maskable_idx[:k_b]
+                    candidate = torch.zeros_like(maskable[b])
+                    candidate[chosen] = True
+                    to_unmask[b] = candidate & maskable[b]
+        else:
+            rate = step / num_steps
+            cutoff_len = (total_masked * rate).long().clamp(min=0)
+
+            # Choose HIGH-entropy tokens to keep masked
+            sel_scores = ent_i.masked_fill(~maskable, -finf.max)
+            B, L = sel_scores.shape
+            k_max = cutoff_len.max().item()
+            if k_max > 0:
+                sss, idx = torch.topk(sel_scores, k_max, dim=-1, largest=True)
+                keep_mask = torch.zeros_like(sel_scores, dtype=torch.bool)
+                for b in range(B):
+                    k_b = int(cutoff_len[b].item())
+                    if k_b > 0:
+                        keep_mask[b, idx[b, :k_b]] = True
+            else:
+                keep_mask = torch.zeros_like(sel_scores, dtype=torch.bool)
+
+            to_unmask = maskable & ~keep_mask
+
         if to_unmask.any():
             xt[to_unmask] = pred_i[to_unmask]
             maskable[to_unmask] = False
