@@ -106,6 +106,20 @@ text = tokenizer.decode(output[0], skip_special_tokens=True)
 print(text)
 ```
 
+## Citation
+
+```bibtex
+@article{rnd1_2025,
+   title        = {RND1: Simple, Scalable AR-to-Diffusion Conversion},
+   author       = {Chandrasegaran, Keshigeyan and Thomas, Armin W. and Ku, Jerome and Berto, Federico and Kim, Jae Myung and Brixi, Garyk and Nguyen, Eric and Massaroli, Stefano and Poli, Michael},
+   year         = {2025},
+   month        = {Oct},
+   url          = {https://www.radicalnumerics.ai/blog/rnd1},
+   organization = {Radical Numerics}
+}
+```
+
+
 ## Project Structure
 
 ```
@@ -121,7 +135,6 @@ RND_dev/
     ├── sampling.py              # Diffusion sampling algorithm
     └── terminal_visualizer.py   # Live visualization (optional)
 ```
-
 
 ---
 
