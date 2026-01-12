@@ -44,6 +44,7 @@ class RND1GenerationConfig(GenerationConfig):
         eos_token_id: int = None,
         pad_token_id: int = None,
         use_cache: bool = False,
+        eb_gamma: float | None = None,
         **kwargs,
     ):
         # Force no caching for RND generation
@@ -66,6 +67,7 @@ class RND1GenerationConfig(GenerationConfig):
         self.num_diffusion_steps = num_diffusion_steps
         self.mask_token_id = mask_token_id
         self.greedy = greedy
+        self.eb_gamma = eb_gamma
 
     def to_dict(self):
         """Convert configuration to dictionary."""
