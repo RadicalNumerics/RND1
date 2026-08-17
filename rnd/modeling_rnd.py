@@ -23,7 +23,10 @@ import torch
 from torch import nn
 from transformers.cache_utils import Cache
 from transformers.configuration_utils import PretrainedConfig
-from transformers.conversion_mapping import _MODEL_TO_CONVERSION_PATTERN
+from transformers.conversion_mapping import (
+    get_checkpoint_conversion_mapping,
+    register_checkpoint_conversion_mapping,
+)
 from transformers.generation import GenerationConfig
 from transformers.modeling_outputs import MaskedLMOutput, MoeModelOutputWithPast
 from transformers.modeling_utils import PreTrainedModel
@@ -42,7 +45,9 @@ from .generation_utils import RND1GenerationMixin
 # Register rnd1 to use the same checkpoint weight conversion as qwen2_moe.
 # This enables automatic fusion of per-expert weights (experts.N.{gate,up,down}_proj)
 # into the 3D tensor format (experts.{gate_up_proj, down_proj}) used by Qwen3MoeExperts.
-_MODEL_TO_CONVERSION_PATTERN["rnd1"] = "qwen2_moe"
+register_checkpoint_conversion_mapping(
+    "rnd1", get_checkpoint_conversion_mapping("qwen2_moe"), overwrite=True
+)
 
 logger = logging.get_logger(__name__)
 
